@@ -1,5 +1,18 @@
-from database import VariableTypes
+from database import Handler
 
-vt = VariableTypes()
 
-print(vt.string)
+handler = Handler("test")
+
+handler.setup_db(
+    username="postgres",
+    password="password", 
+    host="192.168.1.228", 
+    port="5432",
+    database="dev"
+)
+
+print(handler.get_variables())
+print(handler.set_variable("key", "value"))
+handler.refresh()
+
+print(handler.get_variables())

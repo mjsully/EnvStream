@@ -1,0 +1,19 @@
+[project]
+name = "envstream"
+version = "0.1.0"
+description = "Live, database-backed environment variable manager for Python"
+authors = [
+    { name="Matt Sullivan", email="mattys940@gmail.com" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/mjsully/envstream"
+Repository = "https://github.com/yourusername/envstream"
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"

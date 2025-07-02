@@ -1,30 +1,16 @@
 # from dotenv import load_dotenv
 
-from sqlalchemy import Column, ForeignKey, Integer, String, Boolean, DateTime, UniqueConstraint, create_engine, func
+from sqlalchemy import Column, ForeignKey, Integer, String, Boolean, DateTime, UniqueConstraint, create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import os
+import json
 from neologger import NeoLogger
+
+from datetime import datetime
 
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.exc import IntegrityError
-
-# def to_type(self, type, value):
-
-#         if type == "STRING":
-#             return str(value)
-#         elif type == "INTEGER":
-#             return int(value):
-#         elif type == "FLOAT":
-#             return float(value):
-#         elif type == "BOOLEAN":
-#             return bool(value)
-#         else:
-#             return str(value) 
-
-
-
-# def from_type(self, type):
 
 class Base(DeclarativeBase):
     pass
@@ -39,21 +25,18 @@ class ConfigurationVariables(Base):
     application = Column(String)
     name = Column(String)
     value = Column(String)
-    type = Column(Integer)
+    type = Column(String)
+    updated = Column(DateTime(timezone=True), server_default=func.now())
 
-    # def to_dict(self):
+class EnvStream:
 
-    #     return {
-    #         column for column in self.__columns__
-    #     }
-
-class Handler:
-
-    def __init__(self, application):
+    def __init__(self, application, log_level="INFO"):
 
         self.logger = NeoLogger("Handler")
         self.application = application
         self.db_string = None
+        self.__variables__ = {}
+        self.log_level = log_level
 
     def setup_db(self, username, password, host, port, database):
 
@@ -67,16 +50,18 @@ class Handler:
         self.__create_tables__()
         self.__load_variables__()
 
-    def __type_enum__(self, enum, value):
+    def __type_enum__(self, value, type):
 
-        if enum == 0:
+        if type == "str":
             return str(value)
-        elif enum == 1:
+        elif type == "int":
             return int(value)
-        elif enum == 2:
+        elif type == "float":
             return float(value)
-        elif enum == 3:
-            return bool(value)
+        elif type == "bool":
+            return value in ["true", 1]
+        elif type == "dict":
+            return json.loads(value)
         else:
             return None
 
@@ -88,18 +73,21 @@ class Handler:
     
     def __create_tables__(self):
 
-        self.logger.log_this("Attempting to create tables")
+        if self.log_level == "DEBUG":
+            self.logger.log_this("Attempting to create tables")
         try:
             engine, _ = self.__get_engine_session__()
             Base.metadata.create_all(engine)
-            self.logger.log_this_success("Created tables")
+            if self.log_level == "DEBUG":
+                self.logger.log_this_success("Created tables")
         except Exception as ex:
             self.logger.log_this_error(f"{type(ex)}: {ex}")
 
     def __set__(self, key, value, type):
-        
-        value = self.__type_enum__(type, value)
+
+        value = self.__type_enum__(value, type)
         setattr(self, key, value)
+        self.__variables__[key] = value
 
     def __get__(self, key):
         
@@ -108,6 +96,9 @@ class Handler:
     def __load_variables__(self):
 
         _, session = self.__get_engine_session__()
+        
+        self.__variables__ = {}
+
         results = session.query(
             ConfigurationVariables
         ).filter_by(
@@ -119,37 +110,61 @@ class Handler:
 
     def set_variable(self, key, value):
 
-        print(vars(self))
         _, session = self.__get_engine_session__()
+
+        self.__variables__[key] = value
 
         variable = ConfigurationVariables(
             application=self.application,
             name=key,
             value=value,
-            type=0
+            type=type(value).__name__
         )
 
-        session.add(variable)
-        session.commit()
+        try:
+            session.add(variable)
+            session.commit()
+            if self.log_level == "DEBUG":
+                self.logger.log_this_success(f"Added variable: {key}/{value}")
+        except IntegrityError as e:
+            session.rollback()
+            config_var = session.execute(
+                select(ConfigurationVariables)
+                .where(ConfigurationVariables.name == key)
+            ).scalar_one_or_none()
+            config_var.value = value
+            config_var.type = type(value).__name__
+            config_var.updated = datetime.utcnow()
+            session.commit()
+            if self.log_level == "DEBUG":
+                self.logger.log_this_success(f"Updated variable: {key}/{value}")
         session.close()
 
         self.__load_variables__()
 
-        # TODO: Implement set function
-        pass
-
     def get_variables(self):
 
-        variables = vars(self)
-        # variables.pop("logger")
-        # variables.pop("application")
-        # variables.pop("db_string")
-
-        return variables
+        return self.__variables__
 
     def get_variable(self, key):
 
         return self.__get__(key)
+
+    def remove_variable(self, key):
+
+        _, session = self.__get_engine_session__()
+        config_var = session.execute(
+            select(ConfigurationVariables)
+            .where(ConfigurationVariables.name == key)
+        ).scalar_one_or_none()
+        if config_var:
+            session.delete(config_var)
+            session.commit()
+            if self.log_level == "DEBUG":
+                self.logger.log_this_success(f"Removed variable: {key}")
+        session.close()
+
+        self.__load_variables__()
 
     def refresh(self):
 

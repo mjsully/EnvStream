@@ -1,6 +1,6 @@
 [project]
 name = "envstream"
-version = "0.1.0"
+version = "0.2.0"
 description = "Live, database-backed environment variable manager for Python"
 authors = [
     { name="Matt Sullivan", email="mattys940@gmail.com" }

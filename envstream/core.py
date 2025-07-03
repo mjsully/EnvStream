@@ -4,6 +4,8 @@ from sqlalchemy import Column, ForeignKey, Integer, String, Boolean, DateTime, U
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import os
+import time
+import threading
 import json
 from neologger import NeoLogger
 
@@ -37,6 +39,7 @@ class EnvStream:
         self.db_string = None
         self.__variables__ = {}
         self.log_level = log_level
+        self.__autorefresh__ = False
 
     def setup_db(self, username, password, host, port, database):
 
@@ -86,12 +89,14 @@ class EnvStream:
     def __set__(self, key, value, type):
 
         value = self.__type_enum__(value, type)
+        if not self.__get__(key) == value:
+            self.logger.log_this_ok(f"Updated {key} = {value}")
         setattr(self, key, value)
         self.__variables__[key] = value
 
     def __get__(self, key):
         
-        getattr(self, key, None)
+        return getattr(self, key, None)
 
     def __load_variables__(self):
 
@@ -106,6 +111,7 @@ class EnvStream:
         ).all()
         
         for value in results:
+            current_value = self.__get__(value.name)
             self.__set__(value.name, value.value, value.type)
 
     def set_variable(self, key, value):
@@ -125,7 +131,7 @@ class EnvStream:
             session.add(variable)
             session.commit()
             if self.log_level == "DEBUG":
-                self.logger.log_this_success(f"Added variable: {key}/{value}")
+                self.logger.log_this_success(f"Added variable {key} = {value} to DB!")
         except IntegrityError as e:
             session.rollback()
             config_var = session.execute(
@@ -137,7 +143,7 @@ class EnvStream:
             config_var.updated = datetime.utcnow()
             session.commit()
             if self.log_level == "DEBUG":
-                self.logger.log_this_success(f"Updated variable: {key}/{value}")
+                self.logger.log_this_success(f"Updated variable {key} = {value} in DB!")
         session.close()
 
         self.__load_variables__()
@@ -169,3 +175,22 @@ class EnvStream:
     def refresh(self):
 
         self.__load_variables__()
+
+    def _start_autorefresh(self, frequency):
+
+        while self.__autorefresh__:
+
+            self.__load_variables__()
+            time.sleep(frequency)
+
+    def auto_refresh(self, frequency=5):
+
+        if not self.__autorefresh__:
+
+            self.__autorefresh__ = True
+            thread = threading.Thread(target=self._start_autorefresh, args=(frequency,), daemon=True)
+            thread.start()
+
+        else:
+            self.__autorefresh__ = False
+            return False

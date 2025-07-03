@@ -56,6 +56,8 @@ var_handler.remove_variable("variable4")
 while True:
     var_handler.refresh()
     time.sleep(5)
+# Automatically refresh variables
+var_handler.auto_refresh(frequency=5)
 ```
 
 ## 🤝 Contributing
